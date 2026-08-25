@@ -1,58 +1,128 @@
-# grid_game.py
+# agent.py
 import random
+from collections import deque
+import heapq
 
+class GreedyGridAgent:
+    """A simple agent that tries to move around systematically to clear the grid."""
 
-class GridHuntGame:
-    """A small Pacman-style grid environment (4x4) where an agent collects food."""
+    def __init__(self):
+        self.actions_pool = ['Up', 'Down', 'Left', 'Right']
 
-    def __init__(self, width=4, height=4):
-        self.width = width
-        self.height = height
-        self.agent_pos = [0, 0]  # Starting position (x, y)
+    def sense_and_act(self, percept: dict) -> str:
+        # If standing directly on food, or just wander / move towards coordinates
+        pos = percept['agent_pos']
+        # Simple heuristic or fallback random sweep
+        return random.choice(self.actions_pool)
 
-        # Place a few random food pellets and obstacles (walls)
-        self.food_positions = {(1, 2), (2, 3), (3, 0), (2, 1)}
-        self.walls = {(1, 1), (2, 2)}
+class SimpleReflexAgent:
+    def sense_and_act(self, percept: dict) -> str:
+        pass
 
-        self.score = 0
-        self.steps = 0
+class ModelBasedAgent:
+    def sense_and_act(self, percept: dict) -> str:
+        pass
 
-    def get_percept(self, agent) -> dict:
-        return {
-            'agent_pos': list(self.agent_pos),
-            'smells_food': tuple(self.agent_pos) in self.food_positions,
-            'hit_wall': tuple(self.agent_pos) in self.walls,
-            'score': self.score,
-            'remaining_food': len(self.food_positions),
-            'all_food': list(self.food_positions),
-            'walls': list(self.walls),
-            'grid_size': (self.width, self.height)
-        }
+class SearchAgent:
+    """A problem-solving agent that uses uninformed search algorithms."""
+    
+    def __init__(self):
+        self.plan = []
+        self.active_algo = 'BFS'
 
-    def execute_action(self, agent, action: str):
-        self.steps += 1
-        new_pos = list(self.agent_pos)
+    def sense_and_act(self, percept: dict) -> str:
+        if not self.plan:
+            agent_pos = tuple(percept['agent_pos'])
+            all_food = percept.get('all_food', [])
+            walls = percept.get('walls', [])
+            grid_size = percept.get('grid_size', (4, 4))
+            
+            if not all_food:
+                return 'Stay'
+                
+            closest_food = min(all_food, key=lambda f: abs(f[0] - agent_pos[0]) + abs(f[1] - agent_pos[1]))
+            goal_pos = tuple(closest_food)
+            
+            if self.active_algo == 'BFS':
+                self.plan = self.bfs_search(agent_pos, goal_pos, walls, grid_size)
+            elif self.active_algo == 'DFS':
+                self.plan = self.dfs_search(agent_pos, goal_pos, walls, grid_size)
+            elif self.active_algo == 'UCS':
+                self.plan = self.ucs_search(agent_pos, goal_pos, walls, grid_size)
+                
+            if not self.plan:
+                return 'Stay'
+                
+        return self.plan.pop(0)
 
-        if action == 'Up':
-            new_pos[1] = min(self.height - 1, new_pos[1] + 1)
-        elif action == 'Down':
-            new_pos[1] = max(0, new_pos[1] - 1)
-        elif action == 'Left':
-            new_pos[0] = max(0, new_pos[0] - 1)
-        elif action == 'Right':
-            new_pos[0] = min(self.width - 1, new_pos[0] + 1)
+    def _get_successors(self, pos, walls, grid_size):
+        x, y = pos
+        width, height = grid_size
+        successors = []
+        
+        # Actions matching the simulator
+        if y + 1 < height and (x, y + 1) not in walls:
+            successors.append(('Up', (x, y + 1), 1))
+        if y - 1 >= 0 and (x, y - 1) not in walls:
+            successors.append(('Down', (x, y - 1), 1))
+        if x - 1 >= 0 and (x - 1, y) not in walls:
+            successors.append(('Left', (x - 1, y), 1))
+        if x + 1 < width and (x + 1, y) not in walls:
+            successors.append(('Right', (x + 1, y), 1))
+            
+        return successors
 
-        # Check collision with walls
-        if tuple(new_pos) in self.walls:
-            self.score -= 5  # Penalty for hitting a wall
-        else:
-            self.agent_pos = new_pos
+    def bfs_search(self, start_pos, goal_pos, walls, grid_size):
+        frontier = deque([(start_pos, [])])
+        reached = {start_pos}
+        
+        while frontier:
+            current_pos, path = frontier.popleft()
+            
+            if current_pos == goal_pos:
+                return path
+                
+            for action, next_pos, cost in self._get_successors(current_pos, walls, grid_size):
+                if next_pos not in reached:
+                    reached.add(next_pos)
+                    frontier.append((next_pos, path + [action]))
+                    
+        return []
 
-        # Check if eating food
-        tuple_pos = tuple(self.agent_pos)
-        if tuple_pos in self.food_positions:
-            self.food_positions.remove(tuple_pos)
-            self.score += 20  # Reward for eating food pellet
+    def dfs_search(self, start_pos, goal_pos, walls, grid_size):
+        frontier = [(start_pos, [])]
+        reached = set()
+        
+        while frontier:
+            current_pos, path = frontier.pop()
+            
+            if current_pos == goal_pos:
+                return path
+            
+            if current_pos not in reached:
+                reached.add(current_pos)
+                
+                for action, next_pos, cost in self._get_successors(current_pos, walls, grid_size):
+                    if next_pos not in reached:
+                        frontier.append((next_pos, path + [action]))
+                        
+        return []
 
-    def is_done(self) -> bool:
-        return len(self.food_positions) == 0 or self.steps >= 20
+    def ucs_search(self, start_pos, goal_pos, walls, grid_size):
+        frontier = [(0, start_pos, [])]
+        reached = set()
+        
+        while frontier:
+            current_cost, current_pos, path = heapq.heappop(frontier)
+            
+            if current_pos == goal_pos:
+                return path
+                
+            if current_pos not in reached:
+                reached.add(current_pos)
+                
+                for action, next_pos, step_cost in self._get_successors(current_pos, walls, grid_size):
+                    if next_pos not in reached:
+                        heapq.heappush(frontier, (current_cost + step_cost, next_pos, path + [action]))
+                        
+        return []
