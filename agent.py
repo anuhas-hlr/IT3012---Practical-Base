@@ -1,175 +1,321 @@
-from collections import deque
 import random
-import math
-
+from collections import deque
 import heapq
+import math
+from logic_engine import KnowledgeBase
 
-# agent.py
-class GreedyGridAgent:
-    """A simple agent that tries to move around systematically to clear the grid."""
 
-    def __init__(self):
-        self.actions_pool = ['Up', 'Down', 'Left', 'Right']
-
-    def sense_and_act(self, percept: dict) -> str:
-        # If standing directly on food, or just wander / move towards coordinates
-        pos = percept['agent_pos']
-        # Simple heuristic or fallback random sweep
-        return random.choice(self.actions_pool)
 
 class SearchAgent:
 
     def __init__(self):
-        self.actions_pool = ['Up', 'Down', 'Left', 'Right']
         self.plan = []
-        self.active_algo = 'BFS'
-        
-    def sense_and_act(self, percept: dict) -> str:
-        if not self.plan:
-            # We assume agent_pos is in percept (you may need to add it to get_percept if missing)
-            agent_pos = tuple(percept.get('agent_pos', (0,0)))
-            all_food = percept.get('all_food', [])
-            
-            if not all_food:
-                return random.choice(self.actions_pool)
-                
-            # Find the closest food pellet using Manhattan distance
-            closest_food = min(all_food, key=lambda f: abs(f[0] - agent_pos[0]) + abs(f[1] - agent_pos[1]))
-            
-            def get_successors(state):
-                successors = []
-                x, y = state
-                moves = {'Up': (x, y + 1), 'Down': (x, y - 1), 'Left': (x - 1, y), 'Right': (x + 1, y)}
-                
-                grid_w, grid_h = percept.get('grid_size', (10, 10))
-                walls = set(percept.get('walls', []))
-                
-                for action, (nx, ny) in moves.items():
-                    if 0 <= nx < grid_w and 0 <= ny < grid_h:
-                        if (nx, ny) not in walls:
-                            if self.active_algo == 'UCS':
-                                successors.append((action, (nx, ny), 1)) # include step cost for UCS
-                            else:
-                                successors.append((action, (nx, ny)))
-                return successors
+        self.active_algo = "AStar"
 
-            # Execute the search method matching self.active_algo
-            if self.active_algo == 'BFS':
-                self.plan = self.bfs_search(agent_pos, closest_food, get_successors)
-            elif self.active_algo == 'DFS':
-                self.plan = self.dfs_search(agent_pos, closest_food, get_successors)
-            elif self.active_algo == 'UCS':
-                def cost_function(s, a, s_next): return 1
-                self.plan = self.ucs_search(agent_pos, closest_food, get_successors, cost_function)
-            elif self.active_algo == 'AStar':
-                grid_size = percept.get('grid_size', (10, 10))
-                walls = set(percept.get('walls', []))
-                self.plan = self.astar_search(agent_pos, closest_food, walls, grid_size, 'manhattan')
-                
-        # Return the first action from the plan
-        if self.plan:
-            return self.plan.pop(0)
-            
-        return random.choice(self.actions_pool)
-    
-    def bfs_search(self, start_state, goal_state, get_successors):
-        frontier = deque([(start_state, [])]) # here queue store state and path
-        reached = set([start_state]) # this will track explored states
+        self.kb = KnowledgeBase()
 
-        while frontier: # while queue is not empty
-            current_state, current_path = frontier.popleft() # get the first element
+        self.kb.tell_rule(
+            ["TargetVisible", "HasDust"],
+            "SafeToEngage"
+        )
 
-            if current_state == goal_state:
-                return current_path # if goal is reached, return the path
+        self.kb.tell_rule(
+            ["SafeToEngage", "BloodseekerMissing"],
+            "Retreat"
+        )
 
-            for action, successor in get_successors(current_state):
-                if successor not in reached:
-                    reached.add(successor)
-                    frontier.append((successor, current_path + [action]))
-        
-        return []
 
-    
-    def dfs_search(self, start_state, goal_state, get_successors):
-        frontier = [(start_state, [])] # Stack stores (state, path)
-        reached = set()                # Track explored states (added when popped)
-        while frontier:
-            current_state, path = frontier.pop() # LIFO Stack
-            if current_state == goal_state:
-                return path
-            
-            if current_state not in reached:
-                reached.add(current_state)
-                for action, successor in get_successors(current_state):
-                    if successor not in reached:
-                        frontier.append((successor, path + [action]))
-        return []
-        
-    def ucs_search(self, start_state, goal_state, get_successors, cost_function):
-        frontier = []
-        heapq.heappush(frontier, (0, id(start_state), start_state, [])) 
-        
-        reached = {start_state: 0} 
-        while frontier:
-            current_cost, _, current_state, path = heapq.heappop(frontier)
-            if current_state == goal_state:
-                return path
-            
-            for action, successor, step_cost in get_successors(current_state):
-                new_cost = current_cost + step_cost
-                
-                if successor not in reached or new_cost < reached[successor]:
-                    reached[successor] = new_cost
-                    heapq.heappush(frontier, (new_cost, id(successor), successor, path + [action]))
-                    
-        return []
+
+
 
     def manhattan_distance(self, pos, goal):
+
         return abs(pos[0] - goal[0]) + abs(pos[1] - goal[1])
 
     def euclidean_distance(self, pos, goal):
-        return math.sqrt((pos[0] - goal[0])**2 + (pos[1] - goal[1])**2)
 
-    def astar_search(self, start_pos, goal_pos, walls, grid_size, heuristic_type='manhattan'):
+        return math.sqrt(
+            (pos[0] - goal[0]) ** 2 +
+            (pos[1] - goal[1]) ** 2
+        )
+
+
+    def bfs_search(self, start, goal, walls, grid_size):
+
+        queue = deque([(start, [])])
+        visited = set()
+
+        while queue:
+
+            state, path = queue.popleft()
+
+            if state == goal:
+                return path
+
+            if state in visited:
+                continue
+
+            visited.add(state)
+
+            x, y = state
+
+            moves = [
+                ((x, y + 1), "Up"),
+                ((x, y - 1), "Down"),
+                ((x - 1, y), "Left"),
+                ((x + 1, y), "Right")
+            ]
+
+            for next_state, action in moves:
+
+                nx, ny = next_state
+
+                if (
+                    0 <= nx < grid_size[0]
+                    and 0 <= ny < grid_size[1]
+                    and next_state not in walls
+                ):
+                    queue.append((next_state, path + [action]))
+
+        return []
+
+    def dfs_search(self, start, goal, walls, grid_size):
+
+        stack = [(start, [])]
+        visited = set()
+
+        while stack:
+
+            state, path = stack.pop()
+
+            if state == goal:
+                return path
+
+            if state in visited:
+                continue
+
+            visited.add(state)
+
+            x, y = state
+
+            moves = [
+                ((x, y + 1), "Up"),
+                ((x, y - 1), "Down"),
+                ((x - 1, y), "Left"),
+                ((x + 1, y), "Right")
+            ]
+
+            for next_state, action in moves:
+
+                nx, ny = next_state
+
+                if (
+                    0 <= nx < grid_size[0]
+                    and 0 <= ny < grid_size[1]
+                    and next_state not in walls
+                ):
+                    stack.append((next_state, path + [action]))
+
+        return []
+
+    def ucs_search(self, start, goal, walls, grid_size):
+
+        pq = [(0, start, [])]
+        visited = set()
+
+        while pq:
+
+            cost, state, path = heapq.heappop(pq)
+
+            if state == goal:
+                return path
+
+            if state in visited:
+                continue
+
+            visited.add(state)
+
+            x, y = state
+
+            moves = [
+                ((x, y + 1), "Up"),
+                ((x, y - 1), "Down"),
+                ((x - 1, y), "Left"),
+                ((x + 1, y), "Right")
+            ]
+
+            for next_state, action in moves:
+
+                nx, ny = next_state
+
+                if (
+                    0 <= nx < grid_size[0]
+                    and 0 <= ny < grid_size[1]
+                    and next_state not in walls
+                ):
+                    heapq.heappush(
+                        pq,
+                        (cost + 1, next_state, path + [action])
+                    )
+
+        return []
+
+    def astar_search(
+        self,
+        start_pos,
+        goal_pos,
+        walls,
+        grid_size,
+        heuristic_type="manhattan",
+        danger_tiles=None
+    ):
+
+        # Tiles where the Bloodseeker escort is missing (real-time
+        # per-tile percept fed into the Knowledge Base below).
+        danger_tiles = set(danger_tiles) if danger_tiles else set()
+
         frontier = []
         reached_states = set()
-        
-        g_cost = 0
-        if heuristic_type == 'manhattan':
-            h_cost = self.manhattan_distance(start_pos, goal_pos)
+
+        if heuristic_type == "manhattan":
+            h = self.manhattan_distance(start_pos, goal_pos)
         else:
-            h_cost = self.euclidean_distance(start_pos, goal_pos)
-            
-        f_cost = g_cost + h_cost
-        heapq.heappush(frontier, (f_cost, g_cost, start_pos, []))
-        
-        moves = {'Up': (0, 1), 'Down': (0, -1), 'Left': (-1, 0), 'Right': (1, 0)}
-        grid_w, grid_h = grid_size
-        
+            h = self.euclidean_distance(start_pos, goal_pos)
+
+        heapq.heappush(
+            frontier,
+            (h, 0, start_pos, [])
+        )
+
         while frontier:
-            f_current, g_current, current_pos, path_taken = heapq.heappop(frontier)
-            
+
+            f_cost, g_cost, current_pos, path = heapq.heappop(frontier)
+
             if current_pos == goal_pos:
-                return path_taken
-                
+                return path
+
             if current_pos in reached_states:
                 continue
-                
+
             reached_states.add(current_pos)
-            
-            for action, (dx, dy) in moves.items():
-                nx, ny = current_pos[0] + dx, current_pos[1] + dy
-                neighbor = (nx, ny)
-                
-                if 0 <= nx < grid_w and 0 <= ny < grid_h and neighbor not in walls:
-                    if neighbor not in reached_states:
-                        g_new = g_current + 1
-                        if heuristic_type == 'manhattan':
-                            h_new = self.manhattan_distance(neighbor, goal_pos)
-                        else:
-                            h_new = self.euclidean_distance(neighbor, goal_pos)
-                        f_new = g_new + h_new
-                        
-                        heapq.heappush(frontier, (f_new, g_new, neighbor, path_taken + [action]))
-                        
+
+            x, y = current_pos
+
+            moves = [
+                ((x, y + 1), "Up"),
+                ((x, y - 1), "Down"),
+                ((x - 1, y), "Left"),
+                ((x + 1, y), "Right")
+            ]
+
+            for next_pos, action in moves:
+
+                nx, ny = next_pos
+
+                if (
+                    0 <= nx < grid_size[0]
+                    and 0 <= ny < grid_size[1]
+                    and next_pos not in walls
+                    and next_pos not in reached_states
+                ):
+
+                    # Step 2: clear facts before evaluating this neighbor
+                    self.kb.clear_facts()
+
+                    # Step 3: feed the CURRENT PERCEPTS for THIS SPECIFIC
+                    # tile. TargetVisible/HasDust hold for every tile on
+                    # this map, but BloodseekerMissing is tile-specific —
+                    # it is only true on tiles the environment reports as
+                    # danger tiles (toxic traps == no Bloodseeker escort).
+                    self.kb.tell_fact("TargetVisible")
+                    self.kb.tell_fact("HasDust")
+
+                    if next_pos in danger_tiles:
+                        self.kb.tell_fact("BloodseekerMissing")
+
+                    # Step 4: run forward chaining
+                    self.kb.forward_chain()
+
+                    # Step 5: skip tile if logically Infeasible, even
+                    # though it is physically reachable
+                    if "Retreat" in self.kb.facts:
+                        continue
+
+
+                    g_new = g_cost + 1
+
+                    if heuristic_type == "manhattan":
+                        h_new = self.manhattan_distance(
+                            next_pos,
+                            goal_pos
+                        )
+                    else:
+                        h_new = self.euclidean_distance(
+                            next_pos,
+                            goal_pos
+                        )
+
+                    f_new = g_new + h_new
+
+                    heapq.heappush(
+                        frontier,
+                        (
+                            f_new,
+                            g_new,
+                            next_pos,
+                            path + [action]
+                        )
+                    )
+
         return []
+
+
+    def sense_and_act(self, percept):
+
+        if not self.plan:
+
+            start = percept["agent_pos"]
+
+            if percept["all_food"]:
+
+                goal = percept["all_food"][0]
+
+                if self.active_algo == "BFS":
+                    self.plan = self.bfs_search(
+                        start,
+                        goal,
+                        percept["walls"],
+                        percept["grid_size"]
+                    )
+
+                elif self.active_algo == "DFS":
+                    self.plan = self.dfs_search(
+                        start,
+                        goal,
+                        percept["walls"],
+                        percept["grid_size"]
+                    )
+
+                elif self.active_algo == "UCS":
+                    self.plan = self.ucs_search(
+                        start,
+                        goal,
+                        percept["walls"],
+                        percept["grid_size"]
+                    )
+
+                elif self.active_algo == "AStar":
+
+                    self.plan = self.astar_search(
+                        start,
+                        goal,
+                        percept["walls"],
+                        percept["grid_size"],
+                        danger_tiles=percept.get("danger_tiles", [])
+                    )
+
+ 
+        if self.plan:
+            return self.plan.pop(0)
+
+        return random.choice(["Up", "Down", "Left", "Right"])
